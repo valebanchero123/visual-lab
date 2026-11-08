@@ -40,6 +40,8 @@ label.chk{display:flex;gap:6px;align-items:center;color:var(--mut);margin:6px 0}
 #msg{margin-top:10px;color:#ffb4a8;min-height:18px}
 .hint{color:var(--mut);font-size:11px}
 #fps{position:fixed;right:10px;bottom:8px;color:rgba(255,255,255,.35);font-size:11px;z-index:3;pointer-events:none}
+a.gonodes{display:flex;flex-direction:column;gap:3px;text-decoration:none;color:var(--tx);border-color:var(--ac);background:rgba(124,245,212,.08)}
+a.gonodes b{color:var(--ac)}a.gonodes span{color:var(--mut);font-size:12px}a.gonodes:hover{background:rgba(124,245,212,.16)}
 .rec{background:#ff4d6a!important;border-color:#ff4d6a!important;color:#fff!important}
 </style>
 </head>
@@ -47,6 +49,7 @@ label.chk{display:flex;gap:6px;align-items:center;color:var(--mut);margin:6px 0}
 <canvas id="gl"></canvas>
 <div id="panel">
   <h1>VISUAL LAB</h1>
+  <a class="card gonodes" href="nodes.html"><b>Probá el editor de nodos →</b><span>Cajas y cables, tutoriales guiados, línea de tiempo y más.</span></a>
 
   <h2>Fuente de imagen</h2>
   <div class="seg">

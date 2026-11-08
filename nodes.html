@@ -132,6 +132,8 @@ button.rec{background:#ff4d6a;border-color:#ff4d6a;color:#fff}
   <select id="gifDither" title="Tramado del GIF: reduce las bandas en los degradados"><option value="0">Sin tramado</option><option value="1">Tramado ordenado (estable)</option><option value="2" selected>Floyd–Steinberg (más fino)</option></select>
   <select id="gifW" title="Ancho del GIF"><option value="320">320 px</option><option value="480" selected>480 px</option><option value="640">640 px</option></select>
   <button id="btnFs">Pantalla completa</button>
+  <button id="btnProj" title="Abre una ventana aparte que muestra solo el visual: arrastrala al proyector o a la segunda pantalla y hacé doble clic para pantalla completa">Proyector</button>
+  <button id="btnShare" title="Copia un link con todo tu proyecto adentro (cajas, cables, animaciones y fórmulas). Quien lo abra ve lo mismo y puede remixarlo">Compartir link</button>
   <button id="btnSave">Guardar .json</button>
   <button id="btnLoad">Cargar .json</button>
   <button id="btnFit">Encuadrar</button>
@@ -832,7 +834,7 @@ function frame(now){
   const outN=ns.find(n=>DEFS[n.type].isOut),vn=nodes[viewId];
   if(outN)evalTex(outN);
   const vt=vn?evalTex(vn):black;
-  pass(blitProg,null,vt);gifTick(now);
+  pass(blitProg,null,vt);gifTick(now);projTick();
   // miniaturas (2 por cuadro, rotando)
   const ev=ns.filter(n=>n.thumb&&n.frame===frameId);
   for(let i=0;i<2&&ev.length;i++){updateThumb(ev[thumbI++%ev.length])}
@@ -939,6 +941,46 @@ $('#btnRec').onclick=()=>{if(rec){rec.stop();return}
 $('#btnShot').onclick=()=>canvas.toBlob(b=>download(b,'nodos-lab-'+Date.now()+'.png'));
 const fs=()=>document.fullscreenElement?document.exitFullscreen():canvas.requestFullscreen();
 $('#btnFs').onclick=fs;canvas.addEventListener('dblclick',fs);
+
+/* ---------- Ventana para proyector: copia la vista previa a otra ventana, sin interfaz ---------- */
+let proj=null,projCtx=null;
+function openProj(){
+  if(proj&&!proj.closed){proj.focus();return}
+  proj=window.open('','vlab-proyector','popup,width=960,height=540');
+  if(!proj){say('El navegador bloqueó la ventana: permití las ventanas emergentes para este sitio');return}
+  const d=proj.document;d.title='Visual Lab · Proyector';
+  d.body.innerHTML='<canvas id="pc"></canvas><div id="ph">Arrastrá esta ventana al proyector · doble clic = pantalla completa</div>';
+  const st=d.createElement('style');
+  st.textContent='html,body{margin:0;height:100%;background:#000;overflow:hidden}canvas{width:100%;height:100%;object-fit:contain;display:block}body.idle{cursor:none}#ph{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);padding:6px 12px;border-radius:8px;background:rgba(0,0,0,.6);color:#fff;font:13px system-ui,sans-serif;transition:opacity .4s}body.idle #ph{opacity:0}';
+  d.head.appendChild(st);
+  const pc=d.getElementById('pc');projCtx=pc.getContext('2d');
+  pc.addEventListener('dblclick',()=>d.fullscreenElement?d.exitFullscreen():pc.requestFullscreen());
+  let idleT=0;const wake=()=>{d.body.classList.remove('idle');proj.clearTimeout(idleT);idleT=proj.setTimeout(()=>d.body.classList.add('idle'),2500)};
+  d.addEventListener('pointermove',wake);wake();
+  proj.addEventListener('beforeunload',()=>{proj=null;projCtx=null;$('#btnProj').classList.remove('on')});
+  $('#btnProj').classList.add('on')}
+function projTick(){
+  if(!projCtx)return;if(!proj||proj.closed){proj=null;projCtx=null;$('#btnProj').classList.remove('on');return}
+  const c=projCtx.canvas;if(c.width!==canvas.width||c.height!==canvas.height){c.width=canvas.width;c.height=canvas.height}
+  projCtx.drawImage(canvas,0,0)}
+$('#btnProj').onclick=openProj;
+addEventListener('beforeunload',()=>{if(proj&&!proj.closed)proj.close()});
+
+/* ---------- Compartir por link: el proyecto viaja comprimido en la URL (después de #g=), sin servidor ---------- */
+const b64u={enc:u8=>{let s='';for(let i=0;i<u8.length;i+=0x8000)s+=String.fromCharCode.apply(null,u8.subarray(i,i+0x8000));return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'')},
+  dec:s=>{s=s.replace(/-/g,'+').replace(/_/g,'/');const b=atob(s+'==='.slice((s.length+3)%4));const u=new Uint8Array(b.length);for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i);return u}};
+async function packGraph(g){const s=new Blob([JSON.stringify(g)]).stream().pipeThrough(new CompressionStream('deflate-raw'));return b64u.enc(new Uint8Array(await new Response(s).arrayBuffer()))}
+async function unpackGraph(code){const s=new Blob([b64u.dec(code)]).stream().pipeThrough(new DecompressionStream('deflate-raw'));return JSON.parse(await new Response(s).text())}
+async function shareLink(){
+  try{const url=location.href.split('#')[0]+'#g='+await packGraph(serialize());
+    const media=list().some(n=>n.type==='camera'||n.type==='file'),warn=media?' (la cámara y los archivos no viajan: quien lo abra los activa en su compu)':'';
+    try{await navigator.clipboard.writeText(url);say('Link copiado'+warn)}
+    catch(e){prompt('Copiá este link:',url);say(warn.trim())}}
+  catch(e){console.error(e);say('No pude armar el link: '+(e.message||e))}}
+$('#btnShare').onclick=shareLink;
+async function graphFromHash(){const m=location.hash.match(/^#g=([\w-]+)/);if(!m)return null;
+  try{const g=await unpackGraph(m[1]);history.replaceState(null,'',location.pathname+location.search);return g&&Array.isArray(g.nodes)?g:null}
+  catch(e){console.error(e);say('El link está incompleto o dañado');return null}}
 $('#res').onchange=e=>{const[w,h]=e.target.value.split('x').map(Number);setRes(w,h)};
 $('#btnUndo').onclick=undo;$('#btnRedo').onclick=redo;
 addEventListener('keydown',e=>{
@@ -1302,7 +1344,7 @@ const TOUR=[
   b:{l:'Mostrar curvas',run:()=>{if(!tlOpen)tlToggleBtn();setTlMode('curvas')}}},
  {t:'10 · Fórmulas (ƒ)',x:'La <b>ƒ</b> te deja escribir una fórmula en vez de mover a mano. Ejemplos: <code>sin(u*tau)*0.5+0.5</code> (sube y baja), <code>mix(lo,hi,bass)</code> (sigue los graves), <code>noise(t)</code> (azar suave). Si te equivocás, te avisa en rojo.',el:()=>{const e=firstParam('size');return e?e.fx:null},
   b:{l:'Ver ejemplo con fórmulas',run:()=>loadGraph(PRESETS['Expresiones (fórmulas)'])}},
- {t:'11 · Guardar y exportar',x:'Arriba: <b>Captura</b> (foto PNG), <b>GIF</b> (animación corta; “= línea de tiempo” graba la animación completa), <b>Grabar</b> (video con sonido), <b>Guardar .json</b> (tu proyecto, para seguir otro día) y <b>Cargar .json</b>.',el:()=>$('header')},
+ {t:'11 · Guardar y exportar',x:'Arriba: <b>Captura</b> (foto PNG), <b>GIF</b> (animación corta; “= línea de tiempo” graba la animación completa), <b>Grabar</b> (video con sonido), <b>Guardar .json</b> (tu proyecto, para seguir otro día) y <b>Cargar .json</b>. <b>Compartir link</b> copia un link con tu proyecto adentro, y <b>Proyector</b> abre una ventana solo con el visual para mandarla a otra pantalla.',el:()=>$('header')},
  {t:'12 · Atajos útiles',x:'<b>Espacio</b> ▶/⏸ · <b>Ctrl+Z</b> deshacer · <b>Ctrl+C / V</b> copiar y pegar cajas · <b>M</b> minimapa · <b>F</b> pantalla completa · rueda del mouse = zoom · arrastrar el fondo = mover la vista.'},
  {t:'¡Listo! Ahora, a practicar',x:'Ahora viene lo mejor: <b>practicar desde cero</b>, con la app guiándote paso a paso y comprobando cada cosa que hacés. Más tarde podés elegir otras prácticas en <b>? Tutoriales</b> (arriba).',b:{l:'Empezar la práctica 1 · Tu primera imagen',run:()=>startTut('p1')}}];
 let tourI=-1,TUT=TOUR,tutId='recorrido',tourPoll=0,tourMoved=false;
@@ -1460,9 +1502,13 @@ let uiPref='auto';try{uiPref=localStorage.getItem('vlab-ui')||'auto'}catch(e){}
 const uiSel=$('#uiSize');uiSel.value=[...uiSel.options].some(o=>o.value===uiPref)?uiPref:'auto';
 uiSel.onchange=()=>{uiPref=uiSel.value;try{localStorage.setItem('vlab-ui',uiPref)}catch(e){}setUI(uiPref==='auto'?UI_AUTO():+uiPref)};
 addEventListener('resize',()=>{if(uiPref==='auto'){const a=UI_AUTO();if(Math.abs(a-UI)>.04)setUI(a)}});
-(function init(){setUI(uiPref==='auto'?UI_AUTO():+uiPref);let g=null;try{g=JSON.parse(localStorage.getItem('vlab-nodes'))}catch(e){}
+(async function init(){setUI(uiPref==='auto'?UI_AUTO():+uiPref);
+  const shared=await graphFromHash();                              // un link compartido tiene prioridad sobre lo guardado en este navegador
+  let g=shared;if(!g)try{g=JSON.parse(localStorage.getItem('vlab-nodes'))}catch(e){}
   if(g&&Array.isArray(g.nodes)&&g.nodes.length&&g.nodes.some(s=>s.type==='out'))loadGraph(g);else loadGraph(PRESETS['Plasma reactivo']);
-  requestAnimationFrame(frame);try{if(localStorage.getItem('vlab-tour')!=='1')setTimeout(()=>startTour(0),900)}catch(e){}})();
+  if(shared)say('Abriste un proyecto compartido: modificalo como quieras');
+  requestAnimationFrame(frame);try{if(!shared&&localStorage.getItem('vlab-tour')!=='1')setTimeout(()=>startTour(0),900)}catch(e){}})();
+addEventListener('hashchange',async()=>{const g=await graphFromHash();if(g){loadGraph(g);say('Proyecto compartido cargado')}});
 </script>
 </body>
 </html>
